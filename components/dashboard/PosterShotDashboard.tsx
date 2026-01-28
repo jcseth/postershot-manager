@@ -16,7 +16,6 @@ import {
   DollarSign,
   Zap,
   Package,
-  ShoppingCart
 } from 'lucide-react';
 import { 
   ComposedChart, 
@@ -66,7 +65,7 @@ export default function PosterShotDashboard() {
       const cuotaSubsTrimestre = quarterCuotas[quarterCuotas.length - 1]?.cuota_suscripciones || 0;
       
       return {
-        ventas: kpis.ventasReales, // TODO: Sumar trimestre completo
+        ventas: kpis.ventasReales,
         cuotaVentas: cuotaVentasTrimestre,
         suscriptores: kpis.suscriptoresActivos,
         cuotaSuscriptores: cuotaSubsTrimestre,
@@ -76,7 +75,7 @@ export default function PosterShotDashboard() {
     // Anual
     const cuotaAnual = cuotas.reduce((s, c) => s + c.cuota_venta, 0);
     return {
-      ventas: kpis.ventasReales, // TODO: Sumar año completo
+      ventas: kpis.ventasReales,
       cuotaVentas: cuotaAnual,
       suscriptores: kpis.suscriptoresActivos,
       cuotaSuscriptores: 53,
@@ -310,16 +309,15 @@ export default function PosterShotDashboard() {
                                   fontSize: '12px',
                                   padding: '12px 16px'
                                 }}
-                                formatter={(value: number, name: string) => [
-                                  `$${value.toLocaleString()}`, 
-                                  name === 'meta' ? 'Meta' : 'Ingresos'
-                                ]}
+                                formatter={(value) => [`$${Number(value || 0).toLocaleString()}`, '']}
+                                labelFormatter={(label) => `Mes: ${label}`}
                               />
                               <Bar 
                                 dataKey="ingresos" 
                                 fill="#1c1917" 
                                 radius={[6, 6, 0, 0]} 
                                 barSize={20}
+                                name="Ingresos"
                               />
                               <Line 
                                 type="monotone" 
@@ -328,6 +326,7 @@ export default function PosterShotDashboard() {
                                 strokeWidth={3} 
                                 dot={{r: 4, fill: '#f59e0b', strokeWidth: 2, stroke: '#fff'}} 
                                 activeDot={{r: 6}}
+                                name="Meta"
                               />
                             </ComposedChart>
                           </ResponsiveContainer>
