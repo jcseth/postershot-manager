@@ -6,11 +6,9 @@ import {
   Users, 
   TrendingUp,
   DollarSign,
-  Zap,
-  ShoppingBag,
-  Target,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Percent,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -24,11 +22,13 @@ interface EventoKPI {
   gastos: number;
   utilidad: number;
   ticketPromedio: number;
-  porcentajes: {
+  transacciones: number;
+  desglose: {
     personal: number;
     viaticos: number;
+    operativo: number;
     fee: number;
-    margen: number;
+    otros: number;
   };
 }
 
@@ -38,9 +38,6 @@ interface SuscripcionesKPI {
   cancelados: number;
   churn: number;
   mrr: number;
-  desbloqueos: number;
-  inventario: number;
-  porPlan: Array<{ plan: string; cantidad: number; ingreso: number }>;
 }
 
 interface CampanaKPI {
@@ -72,11 +69,11 @@ export default function KPIsView() {
         .from('eventos')
         .select('*')
         .order('fecha_inicio', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (eventos) {
         const eventosConKPIs = await Promise.all(
-          eventos.map(async (evento) => {
+          eventos.map(async (evento: any) => {
             const { data: ventas } = await supabase
               .from('ventas_evento')
               .select('total, cantidad')
@@ -87,14 +84,17 @@ export default function KPIsView() {
               .select('monto, categoria')
               .eq('evento_id', evento.id);
 
-            const totalVentas = ventas?.reduce((s, v) => s + (v.total || 0), 0) || 0;
-            const totalGastos = gastos?.reduce((s, g) => s + (g.monto || 0), 0) || 0;
+            const totalVentas = ventas?.reduce((s: number, v: any) => s + (v.total || 0), 0) || 0;
+            const totalGastos = gastos?.reduce((s: number, g: any) => s + (g.monto || 0), 0) || 0;
             const numTransacciones = ventas?.length || 0;
 
-            const gastosPorCategoria = {
-              personal: gastos?.filter(g => g.categoria === 'personal').reduce((s, g) => s + g.monto, 0) || 0,
-              viaticos: gastos?.filter(g => g.categoria === 'viaticos').reduce((s, g) => s + g.monto, 0) || 0,
-              fee: gastos?.filter(g => g.categoria === 'fee').reduce((s, g) => s + g.monto, 0) || 0,
+            // Desglose por categoría
+            const desglose = {
+              personal: gastos?.filter((g: any) => g.categoria === 'personal').reduce((s: number, g: any) => s + g.monto, 0) || 0,
+              viaticos: gastos?.filter((g: any) => g.categoria === 'viaticos').reduce((s: number, g: any) => s + g.monto, 0) || 0,
+              operativo: gastos?.filter((g: any) => g.categoria === 'operativo').reduce((s: number, g: any) => s + g.monto, 0) || 0,
+              fee: gastos?.filter((g: any) => g.categoria === 'fee').reduce((s: number, g: any) => s + g.monto, 0) || 0,
+              otros: gastos?.filter((g: any) => g.categoria === 'otros').reduce((s: number, g: any) => s + g.monto, 0) || 0,
             };
 
             return {
@@ -105,12 +105,8 @@ export default function KPIsView() {
               gastos: totalGastos,
               utilidad: totalVentas - totalGastos,
               ticketPromedio: numTransacciones > 0 ? totalVentas / numTransacciones : 0,
-              porcentajes: {
-                personal: totalVentas > 0 ? (gastosPorCategoria.personal / totalVentas) * 100 : 0,
-                viaticos: totalVentas > 0 ? (gastosPorCategoria.viaticos / totalVentas) * 100 : 0,
-                fee: totalVentas > 0 ? (gastosPorCategoria.fee / totalVentas) * 100 : 0,
-                margen: totalVentas > 0 ? ((totalVentas - totalGastos) / totalVentas) * 100 : 0,
-              },
+              transacciones: numTransacciones,
+              desglose,
             };
           })
         );
@@ -144,45 +140,15 @@ export default function KPIsView() {
         .eq('status', 'pagado')
         .gte('fecha_pago', startOfMonth);
 
-      const { data: desbloqueos } = await supabase
-        .from('desbloqueos')
-        .select('total')
-        .gte('fecha', startOfMonth);
-
-      const { data: inventario } = await supabase
-        .from('ventas_inventario_suscriptor')
-        .select('total_venta')
-        .gte('fecha', startOfMonth);
-
-      // Por plan
-      const { data: suscriptoresPorPlan } = await supabase
-        .from('suscriptores')
-        .select('plan_id, planes_suscripcion(nombre, precio_mensual)')
-        .eq('status', 'activo');
-
-      const planCounts: Record<string, { cantidad: number; precio: number }> = {};
-      suscriptoresPorPlan?.forEach((s: any) => {
-        const planName = s.planes_suscripcion?.nombre || 'Sin plan';
-        const precio = s.planes_suscripcion?.precio_mensual || 0;
-        if (!planCounts[planName]) {
-          planCounts[planName] = { cantidad: 0, precio };
-        }
-        planCounts[planName].cantidad++;
-      });
+      const mrr = pagos?.reduce((s: number, p: any) => s + (p.monto || 0), 0) || 0;
+      const churnRate = activos && activos > 0 ? ((cancelados || 0) / activos) * 100 : 0;
 
       setSuscripcionesKPI({
         activos: activos || 0,
         nuevos: nuevos || 0,
         cancelados: cancelados || 0,
-        churn: activos && activos > 0 ? ((cancelados || 0) / activos) * 100 : 0,
-        mrr: pagos?.reduce((s, p) => s + (p.monto || 0), 0) || 0,
-        desbloqueos: desbloqueos?.reduce((s, d) => s + (d.total || 0), 0) || 0,
-        inventario: inventario?.reduce((s, i) => s + (i.total_venta || 0), 0) || 0,
-        porPlan: Object.entries(planCounts).map(([plan, data]) => ({
-          plan,
-          cantidad: data.cantidad,
-          ingreso: data.cantidad * data.precio,
-        })),
+        churn: churnRate,
+        mrr,
       });
 
       // Fetch campañas KPIs
@@ -194,7 +160,7 @@ export default function KPIsView() {
 
       if (campanas) {
         const campanasConKPIs = await Promise.all(
-          campanas.map(async (campana) => {
+          campanas.map(async (campana: any) => {
             const { data: leads } = await supabase
               .from('leads')
               .select('convertido, monto_venta')
@@ -206,9 +172,9 @@ export default function KPIsView() {
               .eq('campana_id', campana.id);
 
             const totalLeads = leads?.length || 0;
-            const convertidos = leads?.filter(l => l.convertido).length || 0;
-            const ventasLeads = leads?.filter(l => l.convertido && l.monto_venta).reduce((s, l) => s + (l.monto_venta || 0), 0) || 0;
-            const ventasDirectas = ventas?.reduce((s, v) => s + (v.total || 0), 0) || 0;
+            const convertidos = leads?.filter((l: any) => l.convertido).length || 0;
+            const ventasLeads = leads?.filter((l: any) => l.convertido && l.monto_venta).reduce((s: number, l: any) => s + (l.monto_venta || 0), 0) || 0;
+            const ventasDirectas = ventas?.reduce((s: number, v: any) => s + (v.total || 0), 0) || 0;
             const totalVentas = ventasLeads + ventasDirectas;
             const gasto = campana.gasto_real || 0;
 
@@ -237,35 +203,40 @@ export default function KPIsView() {
   }, []);
 
   const tabs = [
-    { id: 'eventos' as const, label: 'Eventos', icon: Calendar },
-    { id: 'suscripciones' as const, label: 'Suscripciones', icon: Users },
-    { id: 'online' as const, label: 'Campañas Online', icon: TrendingUp },
+    { id: 'eventos' as const, label: 'Eventos', icon: Calendar, count: eventosKPIs.length },
+    { id: 'suscripciones' as const, label: 'Suscripciones', icon: Users, count: suscripcionesKPI?.activos || 0 },
+    { id: 'online' as const, label: 'Campañas', icon: TrendingUp, count: campanasKPIs.length },
   ];
 
   return (
     <div className="space-y-6">
       
       {/* TABS */}
-      <div className="flex gap-2 bg-stone-100 p-1 rounded-xl w-fit">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               activeTab === tab.id
-                ? 'bg-white text-stone-900 shadow-sm'
-                : 'text-stone-500 hover:text-stone-700'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <tab.icon size={16} />
             {tab.label}
+            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+              activeTab === tab.id ? 'bg-gray-100' : 'bg-gray-200'
+            }`}>
+              {tab.count}
+            </span>
           </button>
         ))}
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stone-300 border-t-amber-500"></div>
+          <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-blue-600"></div>
         </div>
       ) : (
         <>
@@ -280,11 +251,12 @@ export default function KPIsView() {
                 />
               ) : (
                 eventosKPIs.map((evento) => (
-                  <div key={evento.id} className="bg-white border border-stone-200 rounded-2xl p-6">
-                    <div className="flex items-start justify-between mb-4">
+                  <div key={evento.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    {/* Header del evento */}
+                    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                       <div>
-                        <h3 className="font-semibold text-stone-900">{evento.nombre}</h3>
-                        <p className="text-sm text-stone-500">
+                        <h3 className="font-semibold text-gray-900">{evento.nombre}</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
                           {new Date(evento.fecha).toLocaleDateString('es-MX', { 
                             day: 'numeric', 
                             month: 'long', 
@@ -292,25 +264,37 @@ export default function KPIsView() {
                           })}
                         </p>
                       </div>
-                      <div className={`flex items-center gap-1 text-sm font-medium ${
-                        evento.utilidad >= 0 ? 'text-emerald-600' : 'text-red-600'
+                      <div className={`flex items-center gap-1 text-sm font-semibold ${
+                        evento.utilidad >= 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
                         {evento.utilidad >= 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-                        ${evento.utilidad.toLocaleString()}
+                        ${Math.abs(evento.utilidad).toLocaleString()}
+                        <span className="text-xs font-normal text-gray-400 ml-1">utilidad</span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <MiniStat label="Ventas" value={`$${evento.ventas.toLocaleString()}`} />
-                      <MiniStat label="Gastos" value={`$${evento.gastos.toLocaleString()}`} />
-                      <MiniStat label="Ticket Prom." value={`$${evento.ticketPromedio.toFixed(0)}`} />
-                      <MiniStat label="Margen" value={`${evento.porcentajes.margen.toFixed(1)}%`} positive={evento.porcentajes.margen > 0} />
+                    {/* Métricas principales */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-5">
+                      <MetricBox label="Ventas" value={`$${evento.ventas.toLocaleString()}`} />
+                      <MetricBox label="Gastos" value={`$${evento.gastos.toLocaleString()}`} />
+                      <MetricBox label="Ticket Promedio" value={`$${evento.ticketPromedio.toFixed(0)}`} />
+                      <MetricBox 
+                        label="Margen" 
+                        value={`${evento.ventas > 0 ? ((evento.utilidad / evento.ventas) * 100).toFixed(1) : 0}%`} 
+                        highlight={evento.utilidad > 0}
+                      />
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-stone-100">
-                      <PercentBar label="Personal" value={evento.porcentajes.personal} color="bg-amber-400" />
-                      <PercentBar label="Viáticos" value={evento.porcentajes.viaticos} color="bg-sky-400" />
-                      <PercentBar label="Fee" value={evento.porcentajes.fee} color="bg-violet-400" />
+                    {/* Desglose de gastos */}
+                    <div className="px-5 pb-5">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Desglose de Gastos</p>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <GastoItem label="Personal" value={evento.desglose.personal} total={evento.gastos} color="blue" />
+                        <GastoItem label="Viáticos" value={evento.desglose.viaticos} total={evento.gastos} color="amber" />
+                        <GastoItem label="Operativo" value={evento.desglose.operativo} total={evento.gastos} color="purple" />
+                        <GastoItem label="Fee" value={evento.desglose.fee} total={evento.gastos} color="red" />
+                        <GastoItem label="Otros" value={evento.desglose.otros} total={evento.gastos} color="gray" />
+                      </div>
                     </div>
                   </div>
                 ))
@@ -320,99 +304,23 @@ export default function KPIsView() {
 
           {/* SUSCRIPCIONES TAB */}
           {activeTab === 'suscripciones' && suscripcionesKPI && (
-            <div className="space-y-6">
-              {/* Main KPIs */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <KPIBox 
-                  icon={Users} 
-                  label="Activos" 
-                  value={suscripcionesKPI.activos.toString()}
-                  color="emerald"
-                />
-                <KPIBox 
-                  icon={ArrowUpRight} 
-                  label="Nuevos (mes)" 
-                  value={`+${suscripcionesKPI.nuevos}`}
-                  color="sky"
-                />
-                <KPIBox 
-                  icon={ArrowDownRight} 
-                  label="Cancelados" 
-                  value={suscripcionesKPI.cancelados.toString()}
-                  color="red"
-                />
-                <KPIBox 
-                  icon={Target} 
-                  label="Churn Rate" 
-                  value={`${suscripcionesKPI.churn.toFixed(1)}%`}
-                  color="amber"
-                />
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <StatCard icon={Users} label="Activos" value={suscripcionesKPI.activos.toString()} color="green" />
+                <StatCard icon={ArrowUpRight} label="Nuevos" value={`+${suscripcionesKPI.nuevos}`} color="blue" />
+                <StatCard icon={ArrowDownRight} label="Cancelados" value={suscripcionesKPI.cancelados.toString()} color="red" />
+                <StatCard icon={Percent} label="Churn" value={`${suscripcionesKPI.churn.toFixed(1)}%`} color="amber" />
+                <StatCard icon={DollarSign} label="MRR" value={`$${suscripcionesKPI.mrr.toLocaleString()}`} color="green" />
               </div>
 
-              {/* Ingresos */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white border border-stone-200 rounded-2xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-emerald-100 rounded-xl">
-                      <DollarSign size={20} className="text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">MRR</p>
-                      <p className="text-2xl font-bold text-stone-900">
-                        ${suscripcionesKPI.mrr.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-stone-200 rounded-2xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-violet-100 rounded-xl">
-                      <Zap size={20} className="text-violet-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">Desbloqueos</p>
-                      <p className="text-2xl font-bold text-stone-900">
-                        ${suscripcionesKPI.desbloqueos.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white border border-stone-200 rounded-2xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-sky-100 rounded-xl">
-                      <ShoppingBag size={20} className="text-sky-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm text-stone-500">Inventario</p>
-                      <p className="text-2xl font-bold text-stone-900">
-                        ${suscripcionesKPI.inventario.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <div className="bg-white border border-gray-200 rounded-lg p-5">
+                <p className="text-sm text-gray-500">
+                  MRR = Monthly Recurring Revenue (Ingresos recurrentes mensuales de suscripciones)
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Churn = Tasa de cancelación (suscriptores que cancelan / activos totales)
+                </p>
               </div>
-
-              {/* Por Plan */}
-              {suscripcionesKPI.porPlan.length > 0 && (
-                <div className="bg-white border border-stone-200 rounded-2xl p-6">
-                  <h3 className="font-semibold text-stone-900 mb-4">Distribución por Plan</h3>
-                  <div className="space-y-3">
-                    {suscripcionesKPI.porPlan.map((item) => (
-                      <div key={item.plan} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium text-stone-900">{item.plan}</span>
-                          <span className="text-sm text-stone-500">{item.cantidad} subs</span>
-                        </div>
-                        <span className="font-semibold text-stone-900">
-                          ${item.ingreso.toLocaleString()}/mes
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -427,26 +335,33 @@ export default function KPIsView() {
                 />
               ) : (
                 campanasKPIs.map((campana) => (
-                  <div key={campana.id} className="bg-white border border-stone-200 rounded-2xl p-6">
+                  <div key={campana.id} className="bg-white border border-gray-200 rounded-lg p-5">
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h3 className="font-semibold text-stone-900">{campana.nombre}</h3>
-                        <span className="text-xs font-medium px-2 py-1 bg-violet-100 text-violet-700 rounded-full">
+                        <h3 className="font-semibold text-gray-900">{campana.nombre}</h3>
+                        <span className="text-xs font-medium px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">
                           {campana.plataforma}
                         </span>
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-bold text-stone-900">{campana.roas.toFixed(2)}x</p>
-                        <p className="text-xs text-stone-500">ROAS</p>
+                        <p className="text-xl font-bold text-gray-900">{campana.roas.toFixed(2)}x</p>
+                        <p className="text-xs text-gray-500">ROAS</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                      <MiniStat label="Leads" value={campana.leads.toString()} />
-                      <MiniStat label="Convertidos" value={campana.convertidos.toString()} />
-                      <MiniStat label="Conversión" value={`${campana.conversion.toFixed(1)}%`} />
-                      <MiniStat label="Gasto" value={`$${campana.gasto.toLocaleString()}`} />
-                      <MiniStat label="CAC" value={`$${campana.cac.toFixed(0)}`} />
+                      <MetricBox label="Leads" value={campana.leads.toString()} />
+                      <MetricBox label="Convertidos" value={campana.convertidos.toString()} />
+                      <MetricBox label="Conversión" value={`${campana.conversion.toFixed(1)}%`} />
+                      <MetricBox label="Gasto" value={`$${campana.gasto.toLocaleString()}`} />
+                      <MetricBox label="CAC" value={`$${campana.cac.toFixed(0)}`} />
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <p className="text-xs text-gray-500">
+                        CAC = Costo de Adquisición por Cliente (Gasto / Leads) • 
+                        ROAS = Retorno sobre inversión publicitaria (Ventas / Gasto)
+                      </p>
                     </div>
                   </div>
                 ))
@@ -459,32 +374,41 @@ export default function KPIsView() {
   );
 }
 
-function MiniStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
+function MetricBox({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div>
-      <p className="text-xs text-stone-500 uppercase tracking-wider">{label}</p>
-      <p className={`text-lg font-bold ${positive === false ? 'text-red-600' : positive === true ? 'text-emerald-600' : 'text-stone-900'}`}>
-        {value}
-      </p>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`text-lg font-semibold ${highlight ? 'text-green-600' : 'text-gray-900'}`}>{value}</p>
     </div>
   );
 }
 
-function PercentBar({ label, value, color }: { label: string; value: number; color: string }) {
+function GastoItem({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+  const percentage = total > 0 ? (value / total) * 100 : 0;
+  
+  const colors: Record<string, string> = {
+    blue: 'bg-blue-500',
+    amber: 'bg-amber-500',
+    purple: 'bg-purple-500',
+    red: 'bg-red-500',
+    gray: 'bg-gray-400',
+  };
+
   return (
-    <div>
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-stone-500">{label}</span>
-        <span className="font-medium text-stone-700">{value.toFixed(1)}%</span>
+    <div className="bg-gray-50 rounded-lg p-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-600">{label}</span>
+        <span className="text-xs font-medium text-gray-900">{percentage.toFixed(0)}%</span>
       </div>
-      <div className="w-full bg-stone-100 rounded-full h-2">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(value, 100)}%` }} />
+      <p className="text-sm font-semibold text-gray-900">${value.toLocaleString()}</p>
+      <div className="w-full bg-gray-200 rounded-full h-1 mt-2">
+        <div className={`h-full rounded-full ${colors[color]}`} style={{ width: `${percentage}%` }} />
       </div>
     </div>
   );
 }
 
-function KPIBox({ 
+function StatCard({ 
   icon: Icon, 
   label, 
   value, 
@@ -493,40 +417,32 @@ function KPIBox({
   icon: React.ElementType; 
   label: string; 
   value: string;
-  color: 'emerald' | 'sky' | 'red' | 'amber';
+  color: 'green' | 'blue' | 'red' | 'amber';
 }) {
   const colors = {
-    emerald: 'bg-emerald-100 text-emerald-600',
-    sky: 'bg-sky-100 text-sky-600',
-    red: 'bg-red-100 text-red-600',
-    amber: 'bg-amber-100 text-amber-600',
+    green: 'bg-green-50 text-green-600',
+    blue: 'bg-blue-50 text-blue-600',
+    red: 'bg-red-50 text-red-600',
+    amber: 'bg-amber-50 text-amber-600',
   };
 
   return (
-    <div className="bg-white border border-stone-200 rounded-2xl p-5">
-      <div className={`inline-flex p-2 rounded-xl ${colors[color]} mb-3`}>
-        <Icon size={20} />
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className={`inline-flex p-2 rounded-lg ${colors[color]} mb-2`}>
+        <Icon size={16} />
       </div>
-      <p className="text-2xl font-bold text-stone-900">{value}</p>
-      <p className="text-sm text-stone-500">{label}</p>
+      <p className="text-xl font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-500">{label}</p>
     </div>
   );
 }
 
-function EmptyState({ 
-  icon: Icon, 
-  title, 
-  description 
-}: { 
-  icon: React.ElementType; 
-  title: string; 
-  description: string;
-}) {
+function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
   return (
-    <div className="bg-white border border-stone-200 rounded-2xl p-12 text-center">
-      <Icon size={48} className="mx-auto mb-4 text-stone-300" />
-      <h3 className="font-semibold text-stone-900">{title}</h3>
-      <p className="text-sm text-stone-500 mt-1">{description}</p>
+    <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+      <Icon size={40} className="mx-auto mb-3 text-gray-300" />
+      <h3 className="font-medium text-gray-900">{title}</h3>
+      <p className="text-sm text-gray-500 mt-1">{description}</p>
     </div>
   );
 }
